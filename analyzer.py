@@ -34,30 +34,30 @@ async def analyze_gold_pro():
     return None
 
 
+import pandas as pd
+
 async def get_stooq_data_safe(ticker):
-    """Pobiera dane ze Stooq z zabezpieczeniem przed banem"""
-    # Usuwamy .WA jeśli występuje, Stooq w CSV tego nie lubi
-    symbol = ticker.replace('.WA', '').lower()
-    url = f"https://stooq.pl/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
-
-    headers = {'User-Agent': random.choice(USER_AGENTS)}
-
     try:
-        # Losowe opóźnienie 1-3 sekundy, żeby nie bombardować serwera
-        await asyncio.sleep(random.uniform(1, 3))
-
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            lines = response.text.strip().split('\n')
-            if len(lines) > 1:
-                data = lines[1].split(',')
-                # Format Stooq CSV: Symbol,Date,Time,Open,High,Low,Close,Volume
-                price = float(data[6])
-                # Obliczamy przybliżoną zmianę (uproszczone)
-                return {"symbol": ticker, "price": price, "change": 0.0}
+        # Pobieranie CSV ze Stooq
+        url = f"https://stooq.pl/q/l/?s={ticker}&f=sd2t2ohlcv&h&e=csv"
+        df = pd.read_csv(url)
+        
+        if df.empty or 'Close' not in df.columns:
+            return None
+            
+        price = float(df['Close'].iloc[0])
+        # Obliczanie zmiany (Close vs Open)
+        open_p = float(df['Open'].iloc[0])
+        change = round(((price - open_p) / open_p) * 100, 2) if open_p != 0 else 0
+        
+        return {
+            "symbol": ticker,
+            "price": price,
+            "change": change
+        }
     except Exception as e:
         print(f"Błąd Stooq dla {ticker}: {e}")
-    return None
+        return None
 
 
 async def get_combined_market_data(tickers):
@@ -80,5 +80,6 @@ async def get_combined_market_data(tickers):
             continue # Przejdź do kolejnego tickera zamiast wywalać bota
 
     return results
+
 
 
