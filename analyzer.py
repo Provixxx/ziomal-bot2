@@ -63,19 +63,22 @@ async def get_stooq_data_safe(ticker):
 async def get_combined_market_data(tickers):
     results = []
     for ticker in tickers:
-        # Jeśli to polska spółka, idź przez bezpieczny Stooq
-        if ticker.endswith('.WA'):
-            data = await get_stooq_data_safe(ticker)
-            if data:
-                results.append(data)
-        else:
-                # USA (To u Ciebie działa idealnie)
-                url = f'https://finnhub.io/api/v1/quote?symbol={symbol}&token={config.FINNHUB_KEY}'
+        try:
+            # Jeśli to polska spółka, idź przez bezpieczny Stooq
+            if ticker.endswith('.WA'):
+                data = await get_stooq_data_safe(ticker)
+                if data:
+                    results.append(data)
+            else:
+                # USA - Poprawione: ticker zamiast symbol
+                url = f'https://finnhub.io/api/v1/quote?symbol={ticker}&token={config.FINNHUB_KEY}'
                 r = requests.get(url).json()
                 if 'c' in r:
-                    results.append({"symbol": symbol, "price": r['c'], "change": r.get('dp', 0)})
-    except:
-    pass
+                    results.append({"symbol": ticker, "price": r['c'], "change": r.get('dp', 0)})
+        except Exception as e:
+            print(f"Błąd przy pobieraniu {ticker}: {e}")
+            continue # Przejdź do kolejnego tickera zamiast wywalać bota
 
     return results
+
 
