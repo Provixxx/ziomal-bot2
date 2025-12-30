@@ -12,4 +12,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Komenda startowa bota
-CMD ["python", "main.py"]
+
+python main.py & python -m http.server 8000
