@@ -74,7 +74,8 @@ async def get_combined_market_data(tickers):
                 r = requests.get(url).json()
                 if 'c' in r:
                     results.append({"symbol": symbol, "price": r['c'], "change": r.get('dp', 0)})
-        except:
-            pass
+    except:
+    pass
 
     return results
+
