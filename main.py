@@ -3,6 +3,18 @@ from discord.ext import tasks
 import config
 import analyzer
 from datetime import datetime
+import threading
+import http.server
+import socketserver
+
+def run_health_check_server():
+    # Ten serwer oszuka Koyeb, że bot to strona WWW na porcie 8000
+    handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", 8000), handler) as httpd:
+        httpd.serve_forever()
+
+# Uruchomienie serwera w osobnym wątku, żeby nie blokował bota
+threading.Thread(target=run_health_check_server, daemon=True).start()
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
