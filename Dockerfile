@@ -14,4 +14,5 @@ COPY . .
 # Komenda startowa bota
 
 # Komenda startowa bota
-CMD python main.py & python -m http.server 8000
+CMD python main.py & python -m http.server 8000.
+
