@@ -3,68 +3,102 @@ from discord.ext import tasks
 import config
 import analyzer
 from datetime import datetime
-import threading
-import http.server
-import socketserver
+import asyncio
 
-def run_health_check_server():
-    # Ten serwer oszuka Koyeb, że bot to strona WWW na porcie 8000
-    handler = http.server.SimpleHTTPRequestHandler
-    with socketserver.TCPServer(("", 8000), handler) as httpd:
-        httpd.serve_forever()
-
-# Uruchomienie serwera w osobnym wątku, żeby nie blokował bota
-threading.Thread(target=run_health_check_server, daemon=True).start()
-
+# --- KONFIGURACJA KLIENTA ---
+# Włączamy uprawnienia do pisania wiadomości
 intents = discord.Intents.default()
+intents.message_content = True 
 client = discord.Client(intents=intents)
 
 @client.event
 async def on_ready():
-    print(f"--- SYSTEM MONITORINGU START ---")
-    if not market_loop.is_running(): market_loop.start()
+    print(f"--- ZALOGOWANO JAKO: {client.user} ---")
+    print(f"--- SYSTEM WE FRANKFURCIE STABILNY ---")
+    
+    channel = client.get_channel(config.DISCORD_CHANNEL_ID)
+    if channel:
+        await channel.send("🚀 **Ziomal-bot2** gotowy! Moduł analizy złota (bez pozycji) aktywny.")
+    
+    if not market_loop.is_running():
+        market_loop.start()
 
 @tasks.loop(minutes=5)
 async def market_loop():
     channel = client.get_channel(config.DISCORD_CHANNEL_ID)
-    if not channel: return
+    if not channel:
+        print(f"BŁĄD: Nie znaleziono kanału o ID: {config.DISCORD_CHANNEL_ID}")
+        return
 
     try:
-        # POBIERANIE DANYCH
+        print("Pobieranie danych rynkowych...")
+        # 1. POBIERANIE DANYCH
         stocks = await analyzer.get_combined_market_data(config.WATCHLIST_TECH)
         gold = await analyzer.analyze_gold_pro()
 
-        embed = discord.Embed(title="📊 PODSUMOWANIE RYNKU", color=0x3498db, timestamp=datetime.now())
+        # 2. BUDOWANIE RAPORTU
+        embed = discord.Embed(title="📊 RAPORT GIEŁDOWY & SYGNAŁY", color=0x2ecc71, timestamp=datetime.now())
 
-        # SEKCJA USA
+        # --- SEKCJA USA (NASDAQ/NYSE) ---
         usa = [s for s in stocks if not s['symbol'].endswith('.WA')]
         if usa:
-            txt_usa = "WALOR      | CENA    | ZMIANA\n" + "-"*30 + "\n"
+            txt_usa = ""
             for s in usa:
-                ikona = "▲" if s['change'] > 0 else "▼"
-                txt_usa += f"{s['symbol'].ljust(10)} | {str(s['price']).ljust(7)} | {ikona} {s['change']}%\n"
-            embed.add_field(name="🇺🇸 NASDAQ / NYSE", value=f"```ml\n{txt_usa}```", inline=False)
+                ikona = "🟢" if s['change'] > 0 else "🔴"
+                txt_usa += f"**{s['symbol']}**: ${s['price']} ({ikona} {s['change']}%)\n"
+            embed.add_field(name="🇺🇸 USA (Tech)", value=txt_usa, inline=True)
 
-        # SEKCJA POLSKA (GPW)
+        # --- SEKCJA POLSKA (GPW) ---
         pl = [s for s in stocks if s['symbol'].endswith('.WA')]
-        if len(pl) > 0:
-            txt_pl = "WALOR      | CENA    | ZMIANA\n" + "-" * 30 + "\n"
+        if pl:
+            txt_pl = ""
             for s in pl:
-                ikona = "▲" if s['change'] > 0 else "▼"
-                txt_pl += f"{s['symbol'].replace('.WA', '').ljust(10)} | {str(s['price']).ljust(7)} | {ikona} {s['change']}%\n"
-            embed.add_field(name="🇵🇱 GPW (WARSZAWA)", value=f"```ml\n{txt_pl}```", inline=False)
-        else:
-            # To się wyświetla, gdy lista 'pl' jest pusta
-            embed.add_field(name="🇵🇱 GPW (WARSZAWA)", value="`Trwa pobieranie danych...`", inline=False)
-
-        await channel.send(embed=embed)
-
-        # ALERT ZŁOTA (Oddzielnie)
+                ikona = "🟢" if s['change'] > 0 else "🔴"
+                clean_symbol = s['symbol'].replace('.WA', '')
+                txt_pl += f"**{clean_symbol}**: {s['price']} PLN ({ikona} {s['change']}%)\n"
+            embed.add_field(name="🇵🇱 GPW (Warszawa)", value=txt_pl, inline=True)
+        
+        # --- SEKCJA ZŁOTA (KONKRETNA ANALIZA I SYGNAŁ) ---
         if gold:
-            # ... kod alertu złota bez zmian ...
-            pass
+            cena = gold.get('price', 0)
+            zmiana = gold.get('change', 0)
+            
+            # Logika sygnałów
+            sygnal = "⚪ NEUTRALNY (Konsolidacja)"
+            kolor_sygnalu = "⚪"
+            alert_dodatkowy = ""
+
+            if zmiana >= 1.0:
+                sygnal = "🚀 RAKIETA (Bardzo silny trend wzrostowy)"
+                alert_dodatkowy = "\n⚠️ **UWAGA: DUŻA ZMIENNOŚĆ!**"
+            elif zmiana > 0.5:
+                sygnal = "🟢 KUPUJ (Silny trend wzrostowy)"
+            elif zmiana > 0:
+                sygnal = "📈 LEKKI WZROST (Pozytywnie)"
+            elif zmiana <= -1.0:
+                sygnal = "🩸 KRWAWIENIE (Bardzo silny spadek)"
+                alert_dodatkowy = "\n⚠️ **UWAGA: DUŻA ZMIENNOŚĆ!**"
+            elif zmiana < -0.5:
+                sygnal = "🔴 SPRZEDAWAJ (Silny trend spadkowy)"
+            elif zmiana < 0:
+                sygnal = "📉 LEKKI SPADEK (Negatywnie)"
+
+            wartosc_pola = (
+                f"Cena rynkowa: **{cena} USD**\n"
+                f"Zmiana 24h: **{zmiana}%**\n"
+                f"-----------------------------\n"
+                f"Sygnał AI: **{sygnal}**"
+                f"{alert_dodatkowy}"
+            )
+            
+            embed.add_field(name="🟡 ANALIZA ZŁOTA (XAU/USD)", value=wartosc_pola, inline=False)
+
+        embed.set_footer(text="System monitorowania Ziomal-bot2 | Server: Frankfurt")
+        
+        await channel.send(embed=embed)
+        print("Raport z sygnałami wysłany.")
 
     except Exception as e:
-        print(f"Błąd: {e}")
+        print(f"CRITICAL ERROR w pętli market_loop: {e}")
 
 client.run(config.DISCORD_TOKEN)
