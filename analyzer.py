@@ -44,16 +44,19 @@ async def analyze_gold_pro():
         return None
 
 async def get_stooq_data_safe(ticker):
+    # Nagłówek udający przeglądarkę, aby uniknąć blokady Stooq
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     try:
-        # Pobieranie CSV ze Stooq
         url = f"https://stooq.pl/q/l/?s={ticker}&f=sd2t2ohlcv&h&e=csv"
-        df = pd.read_csv(url)
+        response = requests.get(url, headers=headers, timeout=10) # Dodano nagłówki
         
-        if df.empty or 'Close' not in df.columns:
+        from io import StringIO
+        df = pd.read_csv(StringIO(response.text)) # Odczyt z tekstu odpowiedzi
+        
+        if df.empty or 'Close' not in df.columns or pd.isna(df['Close'].iloc[0]):
             return None
             
         price = float(df['Close'].iloc[0])
-        # Obliczanie zmiany (Close vs Open)
         open_p = float(df['Open'].iloc[0])
         change = round(((price - open_p) / open_p) * 100, 2) if open_p != 0 else 0
         
@@ -86,4 +89,5 @@ async def get_combined_market_data(tickers):
             continue 
 
     return results
+
 
