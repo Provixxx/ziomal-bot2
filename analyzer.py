@@ -1,5 +1,5 @@
+import config 
 import requests
-import config  # <--- TO BYŁO KLUCZOWE, BRAKOWAŁO TEGO
 import pandas as pd
 
 async def analyze_gold_pro():
@@ -86,3 +86,4 @@ async def get_combined_market_data(tickers):
             continue 
 
     return results
+
