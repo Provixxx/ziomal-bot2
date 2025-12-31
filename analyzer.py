@@ -1,6 +1,7 @@
 import config 
 import requests
 import pandas as pd
+from io import StringIO
 
 async def analyze_gold_pro():
     """
@@ -44,31 +45,20 @@ async def analyze_gold_pro():
         return None
 
 async def get_stooq_data_safe(ticker):
-    # Nagłówek udający realną przeglądarkę - BEZ TEGO STOOQ BLOKUJE
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+    # Nagłówek, który mówi Stooq: "Jestem człowiekiem w przeglądarce"
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     try:
         url = f"https://stooq.pl/q/l/?s={ticker}&f=sd2t2ohlcv&h&e=csv"
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=10)
         
-        # Sprawdzamy czy Stooq w ogóle nam odpowiedział
-        if response.status_code != 200:
-            return None
-
-        # Czytamy CSV
-        df = pd.read_csv(io.StringIO(response.text))
+        # StringIO pozwala pandasowi przeczytać tekst, który już pobraliśmy
+        df = pd.read_csv(StringIO(response.text))
         
-        if df.empty or 'Close' not in df.columns:
+        if df.empty or 'Close' not in df.columns or pd.isna(df['Close'].iloc[0]):
             return None
             
         price = float(df['Close'].iloc[0])
         open_p = float(df['Open'].iloc[0])
-        
-        # Jeśli cena jest zerowa lub NaN, nie zwracamy nic
-        if pd.isna(price) or price <= 0:
-            return None
-
         change = round(((price - open_p) / open_p) * 100, 2) if open_p != 0 else 0
         
         return {"symbol": ticker, "price": price, "change": change}
@@ -96,6 +86,7 @@ async def get_combined_market_data(tickers):
             continue 
 
     return results
+
 
 
 
