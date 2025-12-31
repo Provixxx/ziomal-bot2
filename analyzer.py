@@ -12,6 +12,9 @@ async def get_stooq_data_safe(ticker):
         # Pobieramy CSV jako surowy tekst
         url = f"https://stooq.pl/q/l/?s={ticker}&f=sd2t2ohlcv&h&e=csv"
         response = requests.get(url, headers=headers, timeout=15)
+        pprint(f"DEBUG {ticker}: Status {response.status_code}")
+if response.status_code != 200:
+    print(f"DEBUG {ticker}: Treść błędu: {response.text[:100]}")
         
         if response.status_code != 200:
             print(f"Błąd Stooq {ticker}: {response.status_code}")
@@ -74,3 +77,4 @@ async def analyze_gold_pro():
             "tp": round(price * 1.015 if action == "BUY" else price * 0.985, 2)
         }
     except: return None
+
