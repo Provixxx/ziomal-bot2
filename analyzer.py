@@ -44,27 +44,29 @@ async def analyze_gold_pro():
         return None
 
 async def get_stooq_data_safe(ticker):
-    # Nagłówek udający przeglądarkę, aby uniknąć blokady Stooq
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    # TO JEST KLUCZ: Nagłówek udający przeglądarkę
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     try:
         url = f"https://stooq.pl/q/l/?s={ticker}&f=sd2t2ohlcv&h&e=csv"
-        response = requests.get(url, headers=headers, timeout=10) # Dodano nagłówki
+        # Wysyłamy zapytanie z nagłówkiem
+        response = requests.get(url, headers=headers, timeout=10)
         
         from io import StringIO
-        df = pd.read_csv(StringIO(response.text)) # Odczyt z tekstu odpowiedzi
+        import pandas as pd
+        
+        df = pd.read_csv(StringIO(response.text))
         
         if df.empty or 'Close' not in df.columns or pd.isna(df['Close'].iloc[0]):
+            print(f"Brak danych dla {ticker}")
             return None
             
         price = float(df['Close'].iloc[0])
         open_p = float(df['Open'].iloc[0])
         change = round(((price - open_p) / open_p) * 100, 2) if open_p != 0 else 0
         
-        return {
-            "symbol": ticker,
-            "price": price,
-            "change": change
-        }
+        return {"symbol": ticker, "price": price, "change": change}
     except Exception as e:
         print(f"Błąd Stooq dla {ticker}: {e}")
         return None
@@ -89,5 +91,6 @@ async def get_combined_market_data(tickers):
             continue 
 
     return results
+
 
 
