@@ -15,7 +15,7 @@ async def on_ready():
     if not market_loop.is_running():
         market_loop.start()
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=15)
 async def market_loop():
     channel = client.get_channel(config.DISCORD_CHANNEL_ID)
     if not channel: return
@@ -77,3 +77,4 @@ async def market_loop():
         print(f"Błąd pętli: {e}")
 
 client.run(config.DISCORD_TOKEN)
+
