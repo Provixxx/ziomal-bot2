@@ -2,3 +2,5 @@ discord.py
 requests
 pandas
 yfinance
+flask
+threading
