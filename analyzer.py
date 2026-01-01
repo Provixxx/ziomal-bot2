@@ -7,13 +7,14 @@ async def get_stooq_data_safe(ticker):
     """Pobiera dane dla GPW i USA korzystając z biblioteki yfinance"""
     try:
         stock = yf.Ticker(ticker)
-        # Pobieramy historię z ostatniego dnia, aby mieć pewność danych
-        df = stock.history(period="1d")
+        # POPRAWKA: Pobieramy 5 dni, żeby działało w weekendy i święta (jak 1 stycznia)
+        df = stock.history(period="5d")
         
         if df.empty:
             print(f"DEBUG: Brak danych dla {ticker}")
             return None
             
+        # Bierzemy OSTATNI dostępny wiersz (iloc[-1])
         price = df['Close'].iloc[-1]
         open_p = df['Open'].iloc[-1]
         
@@ -39,7 +40,7 @@ async def get_combined_market_data(tickers):
     return results
 
 async def analyze_gold_pro():
-    """Analiza złota - Finnhub działa dobrze dla metali, zostawiamy go"""
+    """Analiza złota - Finnhub"""
     url = f'https://finnhub.io/api/v1/quote?symbol=XAU&token={config.FINNHUB_KEY}'
     try:
         r = requests.get(url, timeout=10).json()
@@ -49,7 +50,6 @@ async def analyze_gold_pro():
         current_price = r['c']
         change_pct = r.get('dp', 0)
         
-        # Logika alertów złota
         action = "NEUTRAL"
         if change_pct <= -0.3: action = "BUY"
         elif change_pct >= 0.3: action = "SELL"
