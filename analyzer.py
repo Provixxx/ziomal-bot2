@@ -2,41 +2,26 @@ import requests
 import pandas as pd
 import config
 import io
+import yfinance as yf
 
 async def get_stooq_data_safe(ticker):
-    # Udajemy przeglądarkę Chrome na Windowsie
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
     try:
-        # Pobieramy CSV jako surowy tekst
-        url = f"https://stooq.pl/q/l/?s={ticker}&f=sd2t2ohlcv&h&e=csv"
-        response = requests.get(url, headers=headers, timeout=15)
+        # Yahoo Finance pobierze dane dla CDR.WA, KGH.WA itd.
+        stock = yf.Ticker(ticker)
+        # Pobieramy historię z ostatniego dnia
+        df = stock.history(period="1d")
         
-        # POPRAWIONE: Teraz linie są poprawnie wewnątrz bloku try
-        print(f"DEBUG {ticker}: Status {response.status_code}")
-        
-        if response.status_code != 200:
-            print(f"DEBUG {ticker}: Treść błędu: {response.text[:100]}")
-            return None
-
-        # Zamiana tekstu na DataFrame (tabelkę)
-        df = pd.read_csv(io.StringIO(response.text))
-        
-        if df.empty or 'Close' not in df.columns:
+        if df.empty:
             return None
             
-        price = float(df['Close'].iloc[0])
-        open_p = float(df['Open'].iloc[0])
+        price = df['Close'].iloc[-1]
+        open_p = df['Open'].iloc[-1]
         
-        if pd.isna(price) or price <= 0:
-            return None
-
         change = round(((price - open_p) / open_p) * 100, 2) if open_p != 0 else 0
         
-        return {"symbol": ticker, "price": price, "change": change}
+        return {"symbol": ticker, "price": round(price, 2), "change": change}
     except Exception as e:
-        print(f"Wyjątek dla {ticker}: {e}")
+        print(f"Błąd Yahoo dla {ticker}: {e}")
         return None
 
 async def get_combined_market_data(tickers):
@@ -77,3 +62,4 @@ async def analyze_gold_pro():
             "tp": round(price * 1.015 if action == "BUY" else price * 0.985, 2)
         }
     except: return None
+
