@@ -4,6 +4,23 @@ import config
 import analyzer
 from datetime import datetime
 import asyncio
+from flask import Flask
+from threading import Thread
+
+# --- KOYEB KEEP ALIVE (OSZUSTWO DLA SERWERA) ---
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot zyje i ma sie dobrze!"
+
+def run():
+    app.run(host='0.0.0.0', port=8000)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+# -----------------------------------------------
 
 intents = discord.Intents.default()
 intents.message_content = True 
@@ -39,7 +56,7 @@ async def market_loop():
             embed.add_field(name="🇺🇸 USA (Tech & AI)", value=v_usa, inline=False)
 
         # TABELKA GPW
-        pl = [s for s in stocks if s['symbol'].endswith('.WA') and s['price'] > 0]
+        pl = [s for s in stocks if s['symbol'].endswith('.WA')]
         if pl:
             v_pl = "```ml\nWALOR      | CENA    | ZMIANA\n" + "-"*28 + "\n"
             for s in pl:
@@ -49,11 +66,10 @@ async def market_loop():
             v_pl += "```"
             embed.add_field(name="🇵🇱 GPW (Polska)", value=v_pl, inline=False)
 
-        # --- SEKCJA ZŁOTA (TYLKO JEŚLI JEST OKAZJA) ---
-        msg_content = "" # Pusta wiadomość tekstowa, chyba że jest pilne info o złocie
+        # --- SEKCJA ZŁOTA ---
+        msg_content = "" 
         
         if gold:
-            # Zmieniamy kolor paska na Złoty lub Czerwony w zależności od akcji
             embed.color = 0xf1c40f if gold['action'] == "BUY" else 0xe74c3c
             embed.title = f"🟡 ALERT ZŁOTA: {gold['action']}!"
             
@@ -67,7 +83,6 @@ async def market_loop():
             )
             embed.add_field(name="🏆 SZCZEGÓŁOWA ANALIZA GOLD", value=val_gold, inline=False)
             
-            # Jeśli zmiana jest gwałtowna, dodaj ping
             if gold['urgent']:
                 msg_content = "⚠️ **UWAGA! DUŻY RUCH NA ZŁOCIE!**"
 
@@ -76,5 +91,6 @@ async def market_loop():
     except Exception as e:
         print(f"Błąd pętli: {e}")
 
+# Uruchamiamy serwer WWW w tle, a potem bota
+keep_alive()
 client.run(config.DISCORD_TOKEN)
-
