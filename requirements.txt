@@ -1,6 +1,6 @@
 discord.py
-requests
-pandas
 yfinance
+pandas
+requests
 flask
-threading
+pytz
