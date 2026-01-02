@@ -3,66 +3,76 @@ import pandas as pd
 import config
 import requests
 
-async def get_stooq_data_safe(ticker):
-    """Pobiera dane dla GPW i USA korzystając z biblioteki yfinance"""
+async def get_market_data_pro(ticker):
+    """Pobiera dane PRO: Cena, Zmiana, RSI, Trend"""
     try:
         stock = yf.Ticker(ticker)
-        # POPRAWKA: Pobieramy 5 dni, żeby działało w weekendy i święta (jak 1 stycznia)
-        df = stock.history(period="5d")
+        # Pobieramy 200 dni, żeby policzyć średnią (Trend) i RSI
+        df = stock.history(period="200d")
         
-        if df.empty:
-            print(f"DEBUG: Brak danych dla {ticker}")
+        if df.empty or len(df) < 15:
             return None
             
-        # Bierzemy OSTATNI dostępny wiersz (iloc[-1])
-        price = df['Close'].iloc[-1]
-        open_p = df['Open'].iloc[-1]
+        current_price = df['Close'].iloc[-1]
+        open_price = df['Open'].iloc[-1]
         
-        # Obliczanie procentowej zmiany
-        change = round(((price - open_p) / open_p) * 100, 2) if open_p != 0 else 0
+        # 1. Obliczanie Zmiany % (Intraday)
+        change = round(((current_price - open_price) / open_price) * 100, 2) if open_price != 0 else 0
         
+        # 2. Obliczanie RSI (14 dni) - Czy jest tanio?
+        delta = df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi_raw = 100 - (100 / (1 + rs))
+        rsi = round(rsi_raw.iloc[-1], 0)
+
+        # 3. Status RSI
+        status = "NEUTRAL"
+        if rsi >= 70: status = "⚠️ GRZANE"
+        elif rsi <= 30: status = "💎 OKAZJA"
+
         return {
             "symbol": ticker, 
-            "price": round(price, 2), 
-            "change": change
+            "price": round(current_price, 2), 
+            "change": change,
+            "rsi": int(rsi),
+            "status": status
         }
     except Exception as e:
-        print(f"Błąd Yahoo dla {ticker}: {e}")
+        print(f"Błąd analizy {ticker}: {e}")
         return None
 
 async def get_combined_market_data(tickers):
-    """Zbiera dane dla wszystkich tickerów z Twojej listy"""
     results = []
     for ticker in tickers:
-        data = await get_stooq_data_safe(ticker)
+        data = await get_market_data_pro(ticker)
         if data:
             results.append(data)
     return results
 
 async def analyze_gold_pro():
-    """Analiza złota - Finnhub"""
+    """Złoto z Finnhub - bez zmian logicznych, tylko obsługa błędów"""
     url = f'https://finnhub.io/api/v1/quote?symbol=XAU&token={config.FINNHUB_KEY}'
     try:
         r = requests.get(url, timeout=10).json()
-        if 'c' not in r or r['c'] == 0:
-            return None
-            
+        if 'c' not in r or r['c'] == 0: return None
+        
         current_price = r['c']
         change_pct = r.get('dp', 0)
         
         action = "NEUTRAL"
-        if change_pct <= -0.3: action = "BUY"
-        elif change_pct >= 0.3: action = "SELL"
+        if change_pct <= -0.5: action = "BUY" # Zwiększyłem lekko próg, żeby nie spamował
+        elif change_pct >= 0.5: action = "SELL"
         
-        if action == "NEUTRAL":
-            return None
+        if action == "NEUTRAL": return None
 
         return {
             "symbol": "ZŁOTO (XAU)", 
             "price": current_price, 
             "action": action,
             "change": round(change_pct, 2), 
-            "urgent": abs(change_pct) > 0.8,
+            "urgent": abs(change_pct) > 1.0,
             "sl": round(current_price * 0.99 if action == "BUY" else current_price * 1.01, 2),
             "tp": round(current_price * 1.015 if action == "BUY" else current_price * 0.985, 2)
         }
