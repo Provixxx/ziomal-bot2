@@ -4,11 +4,11 @@ import config
 import requests
 
 async def get_market_data_pro(ticker):
-    """Pobiera dane PRO: Cena, Zmiana, RSI, Trend"""
+    """Pobiera dane PRO: Cena, Zmiana, RSI"""
     try:
         stock = yf.Ticker(ticker)
-        # Pobieramy 200 dni, żeby policzyć średnią (Trend) i RSI
-        df = stock.history(period="200d")
+        # Pobieramy 200 dni historii
+        df = stock.history(period="200d", auto_adjust=True)
         
         if df.empty or len(df) < 15:
             return None
@@ -16,18 +16,19 @@ async def get_market_data_pro(ticker):
         current_price = df['Close'].iloc[-1]
         open_price = df['Open'].iloc[-1]
         
-        # 1. Obliczanie Zmiany % (Intraday)
+        # 1. Zmiana %
         change = round(((current_price - open_price) / open_price) * 100, 2) if open_price != 0 else 0
         
-        # 2. Obliczanie RSI (14 dni) - Czy jest tanio?
+        # 2. RSI (14)
         delta = df['Close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        
         rs = gain / loss
         rsi_raw = 100 - (100 / (1 + rs))
-        rsi = round(rsi_raw.iloc[-1], 0)
+        rsi = round(rsi_raw.iloc[-1], 0) if not pd.isna(rsi_raw.iloc[-1]) else 50
 
-        # 3. Status RSI
+        # 3. Status
         status = "NEUTRAL"
         if rsi >= 70: status = "⚠️ GRZANE"
         elif rsi <= 30: status = "💎 OKAZJA"
@@ -52,7 +53,7 @@ async def get_combined_market_data(tickers):
     return results
 
 async def analyze_gold_pro():
-    """Złoto z Finnhub - bez zmian logicznych, tylko obsługa błędów"""
+    """Złoto z Finnhub"""
     url = f'https://finnhub.io/api/v1/quote?symbol=XAU&token={config.FINNHUB_KEY}'
     try:
         r = requests.get(url, timeout=10).json()
@@ -61,20 +62,17 @@ async def analyze_gold_pro():
         current_price = r['c']
         change_pct = r.get('dp', 0)
         
-        action = "NEUTRAL"
-        if change_pct <= -0.5: action = "BUY" # Zwiększyłem lekko próg, żeby nie spamował
-        elif change_pct >= 0.5: action = "SELL"
-        
-        if action == "NEUTRAL": return None
+        # Jeśli zmiana jest mała, ignoruj (chyba że to pilne)
+        if abs(change_pct) < 0.3: return None
 
+        action = "BUY" if change_pct <= -0.3 else "SELL"
+        
         return {
             "symbol": "ZŁOTO (XAU)", 
             "price": current_price, 
             "action": action,
             "change": round(change_pct, 2), 
-            "urgent": abs(change_pct) > 1.0,
-            "sl": round(current_price * 0.99 if action == "BUY" else current_price * 1.01, 2),
-            "tp": round(current_price * 1.015 if action == "BUY" else current_price * 0.985, 2)
+            "urgent": abs(change_pct) > 0.8
         }
     except:
         return None
