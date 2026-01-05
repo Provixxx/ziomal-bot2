@@ -5,11 +5,14 @@ import requests
 import g4f
 import asyncio
 
-# Tworzymy sesję z nagłówkiem przeglądarki, aby uniknąć blokady IP na Koyeb
-import requests
+# --- WZMOCNIONA SESJA (Zalecane) ---
 session = requests.Session()
 session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache'
 })
 
 async def get_market_data_pro(ticker):
@@ -17,12 +20,11 @@ async def get_market_data_pro(ticker):
         # Przekazujemy sesję do Ticker
         stock = yf.Ticker(ticker, session=session)
         
-        # Pobieramy 40 dni - to wystarczy na RSI(14) i SMA(20)
-        # Mały zakres danych rzadziej powoduje blokadę
-        df = stock.history(period="40d", interval="1d", auto_adjust=True)
+        # Zmieniamy na 30d, aby zapytanie było "lżejsze" i bezpieczniejsze
+        df = stock.history(period="30d", interval="1d", auto_adjust=True)
         
-        if df.empty or len(df) < 20:
-            print(f"Błąd: Yahoo zablokowało dane dla {ticker} (pusty DF)")
+        if df.empty or len(df) < 15:
+            print(f"Błąd: Yahoo zablokowało dane dla {ticker}")
             return None
             
         current_price = df['Close'].iloc[-1]
@@ -115,3 +117,4 @@ async def analyze_gold_pro():
         }
     except: 
         return None
+
