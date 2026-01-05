@@ -66,7 +66,7 @@ async def market_loop():
         for region, name in [("usa", "🇺🇸 USA Tech"), ("pl", "🇵🇱 GPW Polska")]:
             filtered = [s for s in stocks if (s['symbol'].endswith('.WA') if region == "pl" else not s['symbol'].endswith('.WA'))]
             if filtered:
-                v = "```ml\nWALOR   | CENA    | TRND | RSI\n" + "-"*30 + "\n"
+                v = "```ml\nWALOR    | CENA    | TRND | RSI\n" + "-"*30 + "\n"
                 for s in filtered:
                     sym = s['symbol'].replace('.WA', '')
                     v += f"{sym.ljust(7)} | {str(s['price']).ljust(7)} | {s['trend']} | {s['rsi']}\n"
@@ -85,9 +85,11 @@ async def market_loop():
                 alert.add_field(name="🛑 STOP LOSS", value=f"**{s['setup']['sl']}**", inline=True)
                 alert.add_field(name="💰 TAKE PROFIT", value=f"**{s['setup']['tp']}**", inline=True)
                 await channel.send(content="@everyone ⚡ **Sygnał potwierdzony przez AI i Newsy!**", embed=alert)
+
+        # 3. RAPORT ZŁOTA
         if gold:
             await channel.send(f"🟡 **ZŁOTO (XAU/USD)**: {gold['price']} USD ({gold['change']}%)")
-             
+
     except Exception as e:
         print(f"Error: {e}")
 
@@ -99,6 +101,7 @@ async def before_market_loop():
 keep_alive()
 # Start bota
 client.run(config.DISCORD_TOKEN)
+
 
 
 
