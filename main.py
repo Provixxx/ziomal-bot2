@@ -85,7 +85,9 @@ async def market_loop():
                 alert.add_field(name="🛑 STOP LOSS", value=f"**{s['setup']['sl']}**", inline=True)
                 alert.add_field(name="💰 TAKE PROFIT", value=f"**{s['setup']['tp']}**", inline=True)
                 await channel.send(content="@everyone ⚡ **Sygnał potwierdzony przez AI i Newsy!**", embed=alert)
-
+         if gold:
+            await channel.send(f"🟡 **ZŁOTO (XAU/USD)**: {gold['price']} USD ({gold['change']}%)")
+             
     except Exception as e:
         print(f"Error: {e}")
 
@@ -97,4 +99,5 @@ async def before_market_loop():
 keep_alive()
 # Start bota
 client.run(config.DISCORD_TOKEN)
+
 
