@@ -1,6 +1,7 @@
 discord.py
 yfinance
 pandas
+pytz
 requests
 flask
-pytz
+g4f
