@@ -1,36 +1,45 @@
 import discord
 from discord.ext import tasks
-import config, analyzer, asyncio
+import config
+import analyzer
+import asyncio
 from datetime import datetime
 from flask import Flask
 from threading import Thread
 
-# --- SERVER ---
+# --- SERWER KEEP ALIVE ---
 app = Flask('')
 @app.route('/')
-def home(): return "SYSTEM OPERATIONAL"
+def home(): return "SYSTEM ONLINE"
 def run(): app.run(host='0.0.0.0', port=8000)
 Thread(target=run, daemon=True).start()
 
-# --- BOT ---
+# --- BOT DISCORD ---
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
+# Funkcja tworząca TABELĘ ANSI (Kolory + Wyrównanie)
 def create_ansi_table(data_list):
-    # Nagłówek w kolorze białym/bold
+    # Nagłówek: Biały tekst, wyrównany
     table = "```ansi\n"
     table += "[1;37mWALOR   |   CENA   |   ZM%   | RSI[0m\n"
     table += "------------------------------------\n"
     
     for d in data_list:
-        # Logika kolorów ANSI
-        # 32m = Zielony, 31m = Czerwony
-        color_code = "[0;32m" if d['change'] >= 0 else "[0;31m"
-        change_fmt = f"{d['change']:>+6.2f}%"
+        # Kolor ZMIANY (Zielony / Czerwony)
+        if d['change'] >= 0:
+            color = "[0;32m" # Green
+            sign = "+"
+        else:
+            color = "[0;31m" # Red
+            sign = ""
         
-        # Wiersz tabeli
-        # Symbol na biało, Cena na biało, Zmiana w kolorze, RSI na cyjanowo
-        row = f"[0;37m{d['symbol']:<7}[0m | [0;37m{d['price']:>8.2f}[0m | {color_code}{change_fmt}[0m | [0;36m{d['rsi']:>3}[0m"
+        # Kolor RSI (Niebieski/Cyjan)
+        rsi_color = "[0;36m"
+        
+        # Formatowanie wiersza
+        # :<7 (do lewej), :>8 (do prawej)
+        row = f"[1;37m{d['symbol']:<7}[0m | [1;37m{d['price']:>8.2f}[0m | {color}{d['change']:>+6.2f}%[0m | {rsi_color}{d['rsi']:>3}[0m"
         table += row + "\n"
         
     table += "```"
@@ -39,53 +48,67 @@ def create_ansi_table(data_list):
 @tasks.loop(minutes=15)
 async def market_loop():
     channel = client.get_channel(config.DISCORD_CHANNEL_ID)
-    if not channel: return
+    if not channel:
+        print("Błąd: Brak kanału ID")
+        return
 
     try:
-        # Pobieranie danych
+        # 1. Pobieranie danych
+        print("Pobieram dane giełdowe...")
         stocks = await analyzer.get_combined_market_data(config.WATCHLIST_TECH)
         gold = await analyzer.analyze_gold_pro()
         
-        # Segregacja
-        usa = [s for s in stocks if '.WA' not in s['orig_symbol']]
-        pl = [s for s in stocks if '.WA' in s['orig_symbol']]
+        # 2. Podział na rynki
+        usa_stocks = [s for s in stocks if '.WA' not in s['orig_symbol']]
+        pl_stocks = [s for s in stocks if '.WA' in s['orig_symbol']]
 
+        # 3. Tworzenie Raportu
         embed = discord.Embed(title="📊 RAPORT GIEŁDOWY PRO", color=0x2b2d31, timestamp=datetime.now())
-
-        # 1. TABELE
-        if usa: embed.add_field(name="🇺🇸 USA Tech", value=create_ansi_table(usa), inline=False)
-        if pl: embed.add_field(name="🇵🇱 GPW Polska", value=create_ansi_table(pl), inline=False)
-
-        # 2. SYGNAŁY (Formacje + SL/TP)
-        signals_txt = ""
-        for s in stocks:
-            # Warunek sygnału: RSI skrajne LUB wykryta formacja
-            if s['rsi'] <= 35 or s['rsi'] >= 80 or s['pattern'] != "➖":
-                icon = "🔥" if s['rsi'] <= 35 else "⚠️"
-                if s['pattern'] != "➖": icon = "🕯️"
-                
-                signals_txt += f"**{s['symbol']}** {icon}\n"
-                signals_txt += f"├ Formacja: {s['pattern']}\n"
-                signals_txt += f"├ RSI: {s['rsi']}\n"
-                signals_txt += f"└ 🎯 TP: {s['tp']} | 🛑 SL: {s['sl']}\n"
-                if s['ai']: signals_txt += f"🤖 AI: *{s['ai']}*\n"
-                signals_txt += "\n"
         
-        if signals_txt:
-            embed.add_field(name="⚡ SYGNAŁY I SETUPY", value=signals_txt, inline=False)
+        # Tabela USA
+        if usa_stocks:
+            embed.add_field(name="🇺🇸 USA Tech", value=create_ansi_table(usa_stocks), inline=False)
+        
+        # Tabela PL
+        if pl_stocks:
+            embed.add_field(name="🇵🇱 GPW Polska", value=create_ansi_table(pl_stocks), inline=False)
+            
+        # 4. Sekcja SYGNAŁÓW (Tylko jeśli są okazje)
+        signals_text = ""
+        for s in stocks:
+            # Warunek: RSI ekstremalne LUB wykryta formacja
+            if s['rsi'] <= 35 or s['rsi'] >= 75 or s['pattern'] != "➖":
+                
+                # Ikona statusu
+                if s['rsi'] <= 35: icon = "🟢 OKAZJA"
+                elif s['rsi'] >= 75: icon = "🔴 GRZANE"
+                else: icon = "⚠️ OBSERWUJ"
+                
+                signals_text += f"**{s['symbol']}** {icon} (RSI: {s['rsi']})\n"
+                signals_text += f"├ 🕯️ Formacja: **{s['pattern']}**\n"
+                signals_text += f"├ 🎯 TP: {s['tp']} | 🛑 SL: {s['sl']}\n"
+                if s['ai']:
+                    signals_text += f"└ 🤖 AI: *{s['ai']}*\n"
+                signals_text += "\n"
+        
+        if signals_text:
+            embed.add_field(name="⚡ SYGNAŁY I SETUPY", value=signals_text, inline=False)
 
-        # 3. ZŁOTO
+        # 5. Złoto Footer
         if gold:
-            g_change = f"{gold['change']:+.2f}%"
-            embed.set_footer(text=f"🟡 GOLD (XAU/USD): {gold['price']} $ ({g_change})")
+            g_arrow = "⬆️" if gold['change'] >= 0 else "⬇️"
+            embed.set_footer(text=f"🟡 ZŁOTO: {gold['price']} USD ({gold['change']:+.2f}%) {g_arrow}")
 
         await channel.send(embed=embed)
+        print("Raport wysłany.")
 
     except Exception as e:
         print(f"CRITICAL ERROR: {e}")
 
 @client.event
 async def on_ready():
-    if not market_loop.is_running(): market_loop.start()
+    print(f"Zalogowano jako {client.user}")
+    if not market_loop.is_running():
+        market_loop.start()
 
 client.run(config.DISCORD_TOKEN)
