@@ -4,87 +4,107 @@ import config
 import requests
 import g4f
 import asyncio
+import time
 
-# --- WZMOCNIONA SESJA (Zalecane) ---
+# Sesja do newsów (opcjonalnie)
 session = requests.Session()
 session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 })
 
-async def get_market_data_pro(ticker):
-    # Finnhub używa końcówki .WAR zamiast .WA dla polskiej giełdy
-    finnhub_ticker = ticker.replace('.WA', '.WAR')
-    url = f'https://finnhub.io/api/v1/quote?symbol={finnhub_ticker}&token={config.FINNHUB_KEY}'
+def calculate_rsi(prices, period=14):
+    if len(prices) < period + 1:
+        return 50
+    delta = pd.Series(prices).diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
     
+    avg_gain = gain.iloc[-1]
+    avg_loss = loss.iloc[-1]
+    
+    if avg_loss == 0:
+        return 100
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 0)
+
+async def get_market_data_pro(ticker):
+    # Obsługa polskich spółek dla Finnhub
+    finnhub_ticker = ticker.replace('.WA', '.WAR')
+    
+    # 1. Pobieranie ceny aktualnej (Quote)
+    quote_url = f'https://finnhub.io/api/v1/quote?symbol={finnhub_ticker}&token={config.FINNHUB_KEY}'
+    # 2. Pobieranie świec historycznych do RSI i SMA (ostatnie 30 dni)
+    end = int(time.time())
+    start = end - (30 * 24 * 60 * 60)
+    candles_url = f'https://finnhub.io/api/v1/stock/candle?symbol={finnhub_ticker}&resolution=D&from={start}&to={end}&token={config.FINNHUB_KEY}'
+
     try:
-        # Używamy oficjalnego API z Twoim kluczem
-        r = requests.get(url, timeout=10).json()
-        
-        # 'c' to cena aktualna, 'dp' to zmiana procentowa
-        if 'c' not in r or r['c'] == 0:
-            print(f"Finnhub brak danych dla: {ticker}")
+        r_quote = requests.get(quote_url, timeout=10).json()
+        r_candles = requests.get(candles_url, timeout=10).json()
+
+        if 'c' not in r_quote or r_quote['c'] == 0:
             return None
 
-        current_price = r['c']
-        change = round(r.get('dp', 0), 2)
+        current_price = r_quote['c']
+        change = round(r_quote.get('dp', 0), 2)
         
-        # Finnhub w wersji Free nie daje RSI. Ustawiamy 50 (neutral), 
-        # aby bot mógł wysłać raport bez błędów.
-        rsi = 50 
-        trend = "UP 🟢" if change > 0 else "DOWN 🔴"
+        # Obliczanie wskaźników z historii
+        rsi = 50
+        trend = "SIDE ⚪"
+        if r_candles.get('s') == 'ok':
+            close_prices = r_candles['c']
+            rsi = calculate_rsi(close_prices)
+            sma20 = pd.Series(close_prices).rolling(window=20).mean().iloc[-1]
+            trend = "UP 🟢" if current_price > sma20 else "DOWN 🔴"
+
+        # Logika sygnałów
+        status = "NEUTRAL"
+        setup = None
+        if trend == "UP 🟢" and rsi <= 38:
+            status = "MOCNE KUPUJ 🔥"
+            setup = {"sl": round(current_price * 0.96, 2), "tp": round(current_price * 1.08, 2)}
+        elif rsi >= 75:
+            status = "⚠️ GRZANE"
 
         return {
-            "symbol": ticker, 
-            "price": round(current_price, 2), 
+            "symbol": ticker,
+            "price": round(current_price, 2),
             "change": change,
-            "rsi": rsi, 
-            "status": "DANE LIVE (API)", 
-            "trend": trend, 
-            "setup": None, 
-            "news": "Dane pobrane stabilnie przez Finnhub"
+            "rsi": int(rsi),
+            "status": status,
+            "trend": trend,
+            "setup": setup,
+            "news": "Dane Finnhub Pro"
         }
     except Exception as e:
-        print(f"Błąd API {ticker}: {e}")
+        print(f"Błąd {ticker}: {e}")
         return None
 
 async def verify_with_ai(ticker, price, rsi, trend, news):
-    prompt = f"Analiza {ticker}. Cena: {price}, RSI: {rsi}, Trend: {trend}. Newsy: {news}. Czy to dobry moment na wejście? Krótko: TAK/NIE + powód."
+    prompt = f"Analiza {ticker}. Cena: {price}, RSI: {rsi}, Trend: {trend}. Czy to moment na wejście? Krótko: TAK/NIE + powód."
     try:
-        # Dodany timeout, by AI nie blokowało bota
         response = await asyncio.wait_for(
             g4f.ChatCompletion.create_async(
-                model=g4f.models.gpt_4, 
+                model=g4f.models.gpt_4,
                 messages=[{"role": "user", "content": prompt}]
             ), timeout=15.0)
         return response
-    except: 
-        return "AI nie odpowiedziało w terminie. Sprawdź RSI i trend samodzielnie."
+    except:
+        return "AI zajęte. Sprawdź RSI."
 
 async def get_combined_market_data(tickers):
     results = []
     for ticker in tickers:
         data = await get_market_data_pro(ticker)
-        if data: 
+        if data:
             results.append(data)
-        # Krótka pauza między tickerami, by nie prowokować Yahoo
-        await asyncio.sleep(1) 
+        await asyncio.sleep(0.5) # Przerwa dla API
     return results
 
 async def analyze_gold_pro():
     url = f'https://finnhub.io/api/v1/quote?symbol=XAU&token={config.FINNHUB_KEY}'
     try:
         r = requests.get(url, timeout=10).json()
-        if 'c' not in r or r['c'] == 0: return None
-        return {
-            "symbol": "ZŁOTO", 
-            "price": r['c'], 
-            "change": round(r.get('dp', 0), 2)
-        }
-    except: 
+        return {"symbol": "ZŁOTO", "price": r['c'], "change": round(r.get('dp', 0), 2)}
+    except:
         return None
-
-
