@@ -23,74 +23,99 @@ def keep_alive():
     t.daemon = True
     t.start()
 
-# --- KONFIGURACJA BOT ---
+# --- KONFIGURACJA BOTA ---
 intents = discord.Intents.default()
 intents.message_content = True 
 client = discord.Client(intents=intents)
 
 def is_market_hours():
+    # Sprawdza czy giełda działa (9-17 PL, 15:30-22 USA) + weekendy OFF
     tz_pl = pytz.timezone('Europe/Warsaw')
     now_dt = datetime.now(tz_pl)
+    if now_dt.weekday() >= 5: return False # Weekend
     now = now_dt.time()
-    weekday = now_dt.weekday()
-    if weekday >= 5: return False
-    market_pl = time(9, 0) <= now <= time(17, 5)
-    market_usa = time(15, 30) <= now <= time(22, 5)
+    market_pl = time(9, 0) <= now <= time(17, 15)
+    market_usa = time(15, 30) <= now <= time(22, 15)
     return market_pl or market_usa
+
+def create_pro_table(data_list):
+    # Tworzy tabelę ASCII idealnie wyrównaną
+    # Używamy bloku codeblock dla czcionki o stałej szerokości
+    if not data_list: return "Brak danych."
+    
+    # Nagłówek
+    table = "```text\n"
+    table += f"{'WALOR':<7} | {'CENA':>8} | {'ZM':>7} | {'RSI':>3}\n"
+    table += "-" * 35 + "\n"
+    
+    # Wiersze
+    for item in data_list:
+        # Formatowanie ceny i zmiany
+        price_str = f"{item['price']:.2f}"
+        change_str = f"{item['change']:+.2f}%"
+        
+        table += f"{item['symbol']:<7} | {price_str:>8} | {change_str:>7} | {item['rsi']:>3}\n"
+    
+    table += "```"
+    return table
 
 @client.event
 async def on_ready():
-    print(f"--- ZALOGOWANO JAKO: {client.user} ---")
+    print(f"--- ZALOGOWANO: {client.user} ---")
     if not market_loop.is_running():
         market_loop.start()
 
 @tasks.loop(minutes=15)
 async def market_loop():
-    if not is_market_hours(): return
+    # if not is_market_hours(): return  <-- ODKOMENTUJ TO W PRODUKCJI, TERAZ TESTUJEMY
 
     channel = client.get_channel(config.DISCORD_CHANNEL_ID)
-    if not channel: return
+    if not channel: 
+        print("Błąd: Nie znaleziono kanału ID w configu.")
+        return
 
     try:
-        # Pobieranie danych
-        stocks = await analyzer.get_combined_market_data(config.WATCHLIST_TECH)
+        # 1. Pobieranie danych
+        print("Pobieram dane...")
+        all_data = await analyzer.get_combined_market_data(config.WATCHLIST_TECH)
         gold = await analyzer.analyze_gold_pro()
 
-        # 1. TABELA
-        embed = discord.Embed(title="📊 RAPORT GIEŁDOWY (PRO + AI)", color=0x3498db, timestamp=datetime.now())
-        
-        if not stocks:
-            embed.description = "⚠️ Brak danych o spółkach. Sprawdź config.py lub logi błędu."
-        else:
-            for region, name in [("usa", "🇺🇸 USA Tech"), ("pl", "🇵🇱 GPW Polska")]:
-                filtered = [s for s in stocks if (s['symbol'].endswith('.WA') if region == "pl" else not s['symbol'].endswith('.WA'))]
-                if filtered:
-                    v = "```ml\nWALOR    | CENA    | TRND | RSI\n" + "-"*30 + "\n"
-                    for s in filtered:
-                        sym = s['symbol'].replace('.WA', '')
-                        v += f"{sym.ljust(7)} | {str(s['price']).ljust(7)} | {s['trend']} | {s['rsi']}\n"
-                    v += "```"
-                    embed.add_field(name=name, value=v, inline=False)
-        
-        await channel.send(embed=embed)
+        # 2. Sortowanie (USA vs PL)
+        # Rozpoznajemy PL po tym, że w configu (original_symbol) było '.WA'
+        usa_stocks = [s for s in all_data if '.WA' not in s['original_symbol']]
+        pl_stocks = [s for s in all_data if '.WA' in s['original_symbol']]
 
-        # 2. ALERTY AI
-        for s in stocks:
-            if s['status'] == "MOCNE KUPUJ 🔥":
-                ai_verdict = await analyzer.verify_with_ai(s['symbol'], s['price'], s['rsi'], s['trend'], s['news'])
-                alert = discord.Embed(title=f"🚀 AI TOP PICK: {s['symbol']}", color=0x00ff00)
-                alert.add_field(name="🤖 WERDYKT AI", value=f"**{ai_verdict}**", inline=False)
-                alert.add_field(name="🎯 WEJŚCIE", value=f"**{s['price']}**", inline=True)
-                alert.add_field(name="🛑 STOP LOSS", value=f"**{s['setup']['sl']}**", inline=True)
-                alert.add_field(name="💰 TAKE PROFIT", value=f"**{s['setup']['tp']}**", inline=True)
-                await channel.send(content="@everyone ⚡ **Sygnał potwierdzony!**", embed=alert)
+        # 3. Budowanie Raportu (Embed)
+        embed = discord.Embed(title="📊 RAPORT GIEŁDOWY (PRO + AI)", color=0x2b2d31, timestamp=datetime.now())
+        
+        if usa_stocks:
+            embed.add_field(name="🇺🇸 USA Tech", value=create_pro_table(usa_stocks), inline=False)
+        
+        if pl_stocks:
+            embed.add_field(name="🇵🇱 GPW Polska", value=create_pro_table(pl_stocks), inline=False)
+            
+        # 4. Sekcja AI / Sygnały
+        signals_text = ""
+        for s in all_data:
+            # Warunki na sygnał
+            if s['rsi'] <= 35:
+                signals_text += f"🟢 **{s['symbol']}**: OKAZJA (RSI {s['rsi']}) - AI: *{s['ai']}*\n"
+            elif s['rsi'] >= 80:
+                signals_text += f"⚠️ **{s['symbol']}**: GRZANE (RSI {s['rsi']}) - AI: *{s['ai']}*\n"
+        
+        if signals_text:
+            embed.add_field(name="⚡ SYGNAŁY TECHNICZNE", value=signals_text, inline=False)
 
-        # 3. ZŁOTO
+        # 5. Złoto
         if gold:
-            await channel.send(f"🟡 **ZŁOTO (XAU/USD)**: {gold['price']} USD ({gold['change']}%)")
+            footer_text = f"🟡 ZŁOTO: {gold['price']} USD ({gold['change']}%)"
+            embed.set_footer(text=footer_text)
+
+        await channel.send(embed=embed)
+        print("Raport wysłany.")
 
     except Exception as e:
-        print(f"Error in market_loop: {e}")
+        print(f"Błąd krytyczny w pętli: {e}")
 
 @market_loop.before_loop
 async def before_market_loop():
