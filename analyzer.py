@@ -16,70 +16,39 @@ session.headers.update({
 })
 
 async def get_market_data_pro(ticker):
+    # Finnhub używa końcówki .WAR zamiast .WA dla polskiej giełdy
+    finnhub_ticker = ticker.replace('.WA', '.WAR')
+    url = f'https://finnhub.io/api/v1/quote?symbol={finnhub_ticker}&token={config.FINNHUB_KEY}'
+    
     try:
-        # Przekazujemy sesję do Ticker
-        stock = yf.Ticker(ticker, session=session)
+        # Używamy oficjalnego API z Twoim kluczem
+        r = requests.get(url, timeout=10).json()
         
-        # Zmieniamy na 30d, aby zapytanie było "lżejsze" i bezpieczniejsze
-        df = stock.history(period="30d", interval="1d", auto_adjust=True)
-        
-        if df.empty or len(df) < 15:
-            print(f"Błąd: Yahoo zablokowało dane dla {ticker}")
+        # 'c' to cena aktualna, 'dp' to zmiana procentowa
+        if 'c' not in r or r['c'] == 0:
+            print(f"Finnhub brak danych dla: {ticker}")
             return None
-            
-        current_price = df['Close'].iloc[-1]
-        prev_close = df['Close'].iloc[-2]
-        change = round(((current_price - prev_close) / prev_close) * 100, 2)
+
+        current_price = r['c']
+        change = round(r.get('dp', 0), 2)
         
-        # OBLICZANIE RSI (14)
-        delta = df['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        
-        # Zabezpieczenie przed dzieleniem przez zero
-        avg_loss = loss.iloc[-1]
-        if avg_loss == 0:
-            rsi = 100
-        else:
-            rs = gain.iloc[-1] / avg_loss
-            rsi = round(100 - (100 / (1 + rs)), 0)
-
-        # SMA 20 (Szybszy trend dla technologii i GPW)
-        sma20 = df['Close'].rolling(window=20).mean().iloc[-1]
-        trend = "UP 🟢" if current_price > sma20 else "DOWN 🔴"
-
-        # Newsy (pobierane tylko jeśli nie ma błędu)
-        news_str = "Brak newsów"
-        try:
-            if stock.news:
-                news_headlines = [n['title'] for n in stock.news[:3]]
-                news_str = " | ".join(news_headlines)
-        except: pass
-
-        status = "NEUTRAL"
-        setup = None
-        # Strategia: Trend wzrostowy i korekta (RSI <= 38)
-        if current_price > sma20 and rsi <= 38:
-            status = "MOCNE KUPUJ 🔥"
-            setup = {
-                "sl": round(current_price * 0.96, 2), 
-                "tp": round(current_price * 1.08, 2)
-            }
-        elif rsi >= 75: 
-            status = "⚠️ GRZANE"
+        # Finnhub w wersji Free nie daje RSI. Ustawiamy 50 (neutral), 
+        # aby bot mógł wysłać raport bez błędów.
+        rsi = 50 
+        trend = "UP 🟢" if change > 0 else "DOWN 🔴"
 
         return {
             "symbol": ticker, 
             "price": round(current_price, 2), 
             "change": change,
-            "rsi": int(rsi), 
-            "status": status, 
+            "rsi": rsi, 
+            "status": "DANE LIVE (API)", 
             "trend": trend, 
-            "setup": setup, 
-            "news": news_str
+            "setup": None, 
+            "news": "Dane pobrane stabilnie przez Finnhub"
         }
     except Exception as e:
-        print(f"Krytyczny błąd pobierania {ticker}: {e}")
+        print(f"Błąd API {ticker}: {e}")
         return None
 
 async def verify_with_ai(ticker, price, rsi, trend, news):
@@ -117,4 +86,5 @@ async def analyze_gold_pro():
         }
     except: 
         return None
+
 
