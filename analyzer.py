@@ -123,3 +123,4 @@ async def analyze_gold_pro():
         r = requests.get(url, timeout=5).json()
         return {"price": r['c'], "change": r.get('dp', 0)}
     except: return None
+
