@@ -1,3 +1,4 @@
+# web.py
 import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -9,6 +10,6 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b"OK")
 
-if __name__ == "__main__":
+def start_web():
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     server.serve_forever()
