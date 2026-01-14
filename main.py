@@ -11,12 +11,8 @@ from analyzer_stocks import analyze_stock
 from analyzer_crypto import get_btc_candles, analyze_btc
 from analyzer_gold import get_gold_candles, analyze_gold
 
-import web  # 👈 DODANE
-
-# ======================
-# START WEB (KOYEB)
-# ======================
-threading.Thread(target=web.start_web, daemon=True).start()
+import web_server
+threading.Thread(target=web_server.start_web, daemon=True).start()
 
 # ======================
 # TIME RANGE
@@ -55,3 +51,4 @@ if __name__ == "__main__":
         run()
         print("⏳ sleep 5 min")
         time.sleep(300)  # 5 minut
+
