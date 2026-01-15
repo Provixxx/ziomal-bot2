@@ -7,7 +7,8 @@ import threading
 
 from api_us import get_us_candles
 from analyzer_stocks import analyze_stock
-
+from heartbeat import should_ping
+from webhook_alerts import send_alert
 from analyzer_crypto import get_btc_candles, analyze_btc
 from analyzer_gold import get_gold_candles, analyze_gold
 
@@ -21,6 +22,21 @@ END = int(time.time())
 START = END - 60 * 60 * 24 * 5
 
 def run():
+    # ===== HEARTBEAT =====
+if should_ping("london", 7):
+    send_alert(
+        config.ALERT_WEBHOOK_URL,
+        "SYSTEM",
+        {"status": "🟢 GOLD BOT LIVE – London session open"}
+    )
+
+if should_ping("ny", 13):
+    send_alert(
+        config.ALERT_WEBHOOK_URL,
+        "SYSTEM",
+        {"status": "🟢 GOLD BOT LIVE – NY session open"}
+    )
+
     print(f"[HEARTBEAT] scan ok {datetime.datetime.now()}")
 
     # ===== STOCKS (MTF) =====
@@ -51,4 +67,5 @@ if __name__ == "__main__":
         run()
         print("⏳ sleep 5 min")
         time.sleep(300)  # 5 minut
+
 
