@@ -23,21 +23,22 @@ START = END - 60 * 60 * 24 * 5
 
 def run():
     # ===== HEARTBEAT =====
-if should_ping("london", 7):
-    send_alert(
-        config.ALERT_WEBHOOK_URL,
-        "SYSTEM",
-        {"status": "🟢 GOLD BOT LIVE – London session open"}
-    )
+    if should_ping("london", 7):
+        send_alert(
+            config.ALERT_WEBHOOK_URL,
+            "SYSTEM",
+            {"status": "🟢 GOLD BOT LIVE – London session open"}
+        )
 
-if should_ping("ny", 13):
-    send_alert(
-        config.ALERT_WEBHOOK_URL,
-        "SYSTEM",
-        {"status": "🟢 GOLD BOT LIVE – NY session open"}
-    )
+    if should_ping("ny", 13):
+        send_alert(
+            config.ALERT_WEBHOOK_URL,
+            "SYSTEM",
+            {"status": "🟢 GOLD BOT LIVE – NY session open"}
+        )
 
     print(f"[HEARTBEAT] scan ok {datetime.datetime.now()}")
+
 
     # ===== STOCKS (MTF) =====
     print("=== STOCKS MTF ===")
@@ -67,5 +68,6 @@ if __name__ == "__main__":
         run()
         print("⏳ sleep 5 min")
         time.sleep(300)  # 5 minut
+
 
 
