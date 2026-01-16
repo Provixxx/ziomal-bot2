@@ -1,11 +1,10 @@
-FORCE_TEST_ALERT = False
-
 import os
 
-TEST_GOLD_ALERT = True
+MODE = "PROD"
+TEST_MODE = False
+TEST_GOLD_ALERT = False
+FORCE_TEST_ALERT = False
 
-TEST_MODE = True
-MODE = "TEST"   # TEST | PROD
 DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1451632628842365013/FkOAiiIesLb18Ox_Fs9JaLj2Z_LZ-TLnayjS7Kkc0z1SW00s7WWlweHAATZdN2EgJ_8T"
 BINANCE_BASE_URL = "https://api.binance.com"
 DISCORD_TOKEN = "MTQ1NDA3NjQyMTY4MDE0MDQyMA.GexajH.SsqRYZ_f7NrQXajkVPd4QmkjJlzjjVknK0kgdc"
@@ -34,3 +33,4 @@ STOCKS_PL = [
 # TIMEFRAMES
 # =========================
 CANDLE_LIMIT = 100
+
