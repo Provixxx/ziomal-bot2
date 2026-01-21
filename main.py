@@ -1,65 +1,95 @@
-print("🔥 MAIN.PY STARTED 🔥")
+print("🔥 MAIN.PY V2 STARTED 🔥")
 
 import time
 import datetime
 import threading
 import config
 
+from heartbeat import should_ping
+from webhook_alerts import send_alert
+from alerts_engine import handle_gold_signal
+
+from analyzer_gold import GoldAnalyzer
+from analyzer_crypto import CryptoAnalyzer  # analogiczny V2
+
 from api_us import get_us_candles
 from analyzer_stocks import analyze_stock
 
-from analyzer_crypto import get_btc_candles, analyze_btc
-from analyzer_gold import get_gold_candles, analyze_gold
-
-from heartbeat import should_ping
-from webhook_alerts import send_alert
-
 import web_server
 
+
 # ======================
-# WEB SERVER (KOYEB HEALTHCHECK)
+# WEB SERVER (HEALTHCHECK)
 # ======================
 threading.Thread(
     target=web_server.start_web,
     daemon=True
 ).start()
 
+
 # ======================
-# TIME RANGE (STOCKS)
+# HEARTBEAT
 # ======================
-END = int(time.time())
-START = END - 60 * 60 * 24 * 5  # 5 dni historii
-
-
-def run():
-    now = datetime.datetime.now(datetime.UTC)
-
-    # ======================
-    # HEARTBEAT (SESSION OPEN)
-    # ======================
-
-    # London session: 07:00–07:15 UTC
+def heartbeat():
     if should_ping("london", 7, 0, 15):
         send_alert(
             config.ALERT_WEBHOOK_URL,
             "SYSTEM",
-            {"status": "🟢 GOLD BOT LIVE – London session open"}
+            {"status": "🟢 BOT LIVE – London session open"}
         )
 
-    # NY session: 14:30–14:45 UTC
     if should_ping("ny", 14, 30, 45):
         send_alert(
             config.ALERT_WEBHOOK_URL,
             "SYSTEM",
-            {"status": "🟢 GOLD BOT LIVE – NY session open"}
+            {"status": "🟢 BOT LIVE – NY session open"}
         )
 
-    print(f"[HEARTBEAT] scan ok {now}")
 
-    # ======================
-    # STOCKS (MTF)
-    # ======================
-    print("=== STOCKS MTF ===")
+# ======================
+# GOLD PIPELINE (V2)
+# ======================
+def run_gold():
+    from api_pl import get_gold_candles  # ważne: lokalny import
+
+    df = get_gold_candles()
+    if df is None or len(df) < 30:
+        return
+
+    analyzed = GoldAnalyzer(df).analyze()
+    last = analyzed.iloc[-1]
+
+    handle_gold_signal(
+        symbol="XAUUSD",
+        signal_code=last["signal_code"],
+        price=last["close"]
+    )
+
+
+# ======================
+# BTC PIPELINE (V2)
+# ======================
+def run_btc():
+    from analyzer_crypto import get_btc_candles
+
+    df = get_btc_candles()
+    if df is None or len(df) < 30:
+        return
+
+    analyzed = CryptoAnalyzer(df).analyze()
+    last = analyzed.iloc[-1]
+
+    # analogiczny handler BTC
+    # handle_crypto_signal(...)
+
+
+# ======================
+# STOCKS (LEGACY – zostawiamy)
+# ======================
+def run_stocks():
+    END = int(time.time())
+    START = END - 60 * 60 * 24 * 5
+
     for symbol in config.STOCKS_US:
         h1 = get_us_candles(symbol, "60", START, END)
         m5 = get_us_candles(symbol, "5", START, END)
@@ -67,23 +97,7 @@ def run():
         if h1 and m5:
             analyze_stock(symbol, m5, h1)
 
-        time.sleep(1.2)  # rate limit
-
-    # ======================
-    # BTC
-    # ======================
-    print("=== BTC ===")
-    btc = get_btc_candles()
-    if btc:
-        analyze_btc(btc)
-
-    # ======================
-    # GOLD
-    # ======================
-    print("=== GOLD ===")
-    gold = get_gold_candles()
-    if gold:
-        analyze_gold(gold)
+        time.sleep(1.2)
 
 
 # ======================
@@ -91,6 +105,13 @@ def run():
 # ======================
 if __name__ == "__main__":
     while True:
-        run()
+        now = datetime.datetime.now(datetime.UTC)
+        print(f"[LOOP] {now}")
+
+        heartbeat()
+        run_gold()
+        run_btc()
+        run_stocks()
+
         print("⏳ sleep 5 min")
         time.sleep(300)
