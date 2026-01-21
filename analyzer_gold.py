@@ -1,104 +1,100 @@
-import requests
-from indicators import ema, rsi
+import pandas as pd
+import numpy as np
 
-BINANCE = "https://api.binance.com/api/v3/klines"
-SYMBOL = "XAUUSDT"
 
-def _fetch_d1_levels(days=20):
-    d1 = _fetch("1d", days)
-    if not d1:
-        return None
-    _, h, l, _ = d1
-    return {
-        "d1_high": max(h),
-        "d1_low": min(l)
+class GoldAnalyzer:
+    def __init__(self, data: pd.DataFrame):
+        """
+        Analyzer GOLD (XAUUSD)
+        Dane wejściowe: DataFrame z kolumnami
+        ['date', 'open', 'high', 'low', 'close', 'vol']
+        """
+        self.df = data.copy()
+        self.df.columns = [c.lower() for c in self.df.columns]
+
+    # =========================
+    # INDICATORS
+    # =========================
+    def add_indicators(self):
+        # Trend – EMA (dynamiczne, nie beton jak SMA200)
+        self.df['ema_fast'] = self.df['close'].ewm(span=8, adjust=False).mean()
+        self.df['ema_slow'] = self.df['close'].ewm(span=21, adjust=False).mean()
+
+        # RSI – momentum (kontynuacja trendu)
+        delta = self.df['close'].diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = -delta.clip(upper=0).rolling(14).mean()
+        rs = gain / loss
+        self.df['rsi'] = 100 - (100 / (1 + rs))
+
+        # ATR – zmienność (opcjonalnie na przyszłość)
+        high_low = self.df['high'] - self.df['low']
+        high_close = (self.df['high'] - self.df['close'].shift()).abs()
+        low_close = (self.df['low'] - self.df['close'].shift()).abs()
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        self.df['atr'] = tr.rolling(14).mean()
+
+        return self.df
+
+    # =========================
+    # PRICE ACTION (SMC-lite)
+    # =========================
+    def add_price_action(self):
+        # Impuls strukturalny – realny, częsty
+        self.df['bullish_impulse'] = self.df['close'] > self.df['high'].shift(1)
+        self.df['bearish_impulse'] = self.df['close'] < self.df['low'].shift(1)
+        return self.df
+
+    # =========================
+    # MAIN ANALYSIS
+    # =========================
+    def analyze(self):
+        self.add_indicators()
+        self.add_price_action()
+
+        # Czyścimy NaNy
+        df = self.df.dropna().copy()
+
+        # Domyślnie brak sygnału
+        df['signal_code'] = 0   # 1 = BUY, -1 = SELL
+
+        # =========================
+        # SIGNAL LOGIC – GOLD
+        # =========================
+
+        buy_condition = (
+            (df['ema_fast'] > df['ema_slow']) &          # trend up
+            (df['bullish_impulse']) &                    # impuls ceny
+            (df['rsi'] < 45)                              # momentum pullback
+        )
+
+        sell_condition = (
+            (df['ema_fast'] < df['ema_slow']) &          # trend down
+            (df['bearish_impulse']) &                    # impuls ceny
+            (df['rsi'] > 55)                              # momentum pullback
+        )
+
+        df.loc[buy_condition, 'signal_code'] = 1
+        df.loc[sell_condition, 'signal_code'] = -1
+
+        return df
+
+
+# =========================
+# LOCAL TEST (opcjonalny)
+# =========================
+if __name__ == "__main__":
+    data = {
+        'date': pd.date_range(start='2024-01-01', periods=300, freq='H'),
+        'open': np.random.uniform(2000, 2050, 300),
+        'high': np.random.uniform(2050, 2060, 300),
+        'low': np.random.uniform(1990, 2000, 300),
+        'close': np.random.uniform(2000, 2050, 300),
+        'vol': np.random.randint(100, 1000, 300)
     }
 
-def _fetch(interval, limit):
-    params = {"symbol": SYMBOL, "interval": interval, "limit": limit}
-    r = requests.get(BINANCE, params=params, timeout=10)
-    data = r.json()
-    if not isinstance(data, list):
-        return None
-    o,h,l,c = [],[],[],[]
-    for k in data:
-        o.append(float(k[1]))
-        h.append(float(k[2]))
-        l.append(float(k[3]))
-        c.append(float(k[4]))
-    return o,h,l,c
+    df_mock = pd.DataFrame(data)
+    analyzer = GoldAnalyzer(df_mock)
+    result = analyzer.analyze()
 
-def get_gold_candles():
-    # ======================
-    # LTF M15
-    # ======================
-    m15 = _fetch("15m", 200)
-    if not m15:
-        return None
-    o15, h15, l15, c15 = m15
-
-    # ======================
-    # HTF H1 (TREND)
-    # ======================
-    h1 = _fetch("1h", 300)
-    if not h1:
-        return None
-    _, _, _, c1h = h1
-
-    ema200_h1 = ema(c1h, 200)
-
-    # ======================
-    # D1 LEVELS (POZIOMY)
-    # ======================
-    d1 = _fetch("1d", 30)
-    if not d1:
-        return None
-    _, h1d, l1d, _ = d1
-
-    d1_high = max(h1d)
-    d1_low = min(l1d)
-
-    # ======================
-    # RETURN
-    # ======================
-    return {
-        "ltf": {
-            "o": o15,
-            "h": h15,
-            "l": l15,
-            "c": c15
-        },
-        "htf": {
-            "ema200": ema200_h1,
-            "d1_high": d1_high,
-            "d1_low": d1_low
-        }
-    }
-
-def analyze_gold(data):
-    o, h, l, c = data
-
-    # zabezpieczenie
-    if len(c) < 10:
-        return
-
-    # --- BREAKOUT ---
-    recent_high = max(c[-6:-1])  # ~25 minut
-    last_close = c[-1]
-
-    if last_close > recent_high:
-        entry = round(last_close, 2)
-
-        send_stock_alert("XAUUSD", {
-            "side": "LONG",
-            "entry": entry,
-            "sl": round(entry * 0.99, 2),
-            "tp": round(entry * 1.02, 2),
-            "rsi": "momentum",
-            "ema": "trend",
-            "atr": "high"
-        })
-
-        print("[GOLD BREAKOUT]")
-
-
+    print(result[['date', 'close', 'rsi', 'signal_code']].tail())
