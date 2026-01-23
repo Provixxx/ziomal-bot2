@@ -1,117 +1,54 @@
-print("🔥 MAIN.PY V2 STARTED 🔥")
+_run_count = 0
 
-import time
-import datetime
-import threading
-import config
-
-from heartbeat import should_ping
+from logger import logger
+from data import get_gold_candles
+from analyzer import GoldAnalyzer
 from webhook_alerts import send_alert
-from alerts_engine import handle_gold_signal
+from signals_log import log_signal
+import time
+logger.info("GOLD BOT MVP START")
+_last_signal = None
 
-from analyzer_gold import GoldAnalyzer
-from analyzer_crypto import CryptoAnalyzer  # analogiczny V2
-
-from api_us import get_us_candles
-from analyzer_stocks import analyze_stock
-
-import web_server
-
-
-# ======================
-# WEB SERVER (HEALTHCHECK)
-# ======================
-threading.Thread(
-    target=web_server.start_web,
-    daemon=True
-).start()
-
-
-# ======================
-# HEARTBEAT
-# ======================
-def heartbeat():
-    if should_ping("london", 7, 0, 15):
-        send_alert(
-            config.ALERT_WEBHOOK_URL,
-            "SYSTEM",
-            {"status": "🟢 BOT LIVE – London session open"}
-        )
-
-    if should_ping("ny", 14, 30, 45):
-        send_alert(
-            config.ALERT_WEBHOOK_URL,
-            "SYSTEM",
-            {"status": "🟢 BOT LIVE – NY session open"}
-        )
-
-
-# ======================
-# GOLD PIPELINE (V2)
-# ======================
-def run_gold():
-    from api_pl import get_gold_candles  # ważne: lokalny import
-
+def run_once():
+    global _run_count
+    _run_count += 1
+    logger.info(f"RUN #{_run_count}")
     df = get_gold_candles()
-    if df is None or len(df) < 30:
+    if df is None or df.empty:
+        logger.warning("No data fetched – skipping cycle")
         return
 
     analyzed = GoldAnalyzer(df).analyze()
     last = analyzed.iloc[-1]
 
-    handle_gold_signal(
-        symbol="XAUUSD",
-        signal_code=last["signal_code"],
-        price=last["close"]
+    logger.info(
+        f"STATE | close={last['close']:.2f} "
+        f"ema_fast={last['ema_fast']:.2f} "
+        f"ema_slow={last['ema_slow']:.2f} "
+        f"rsi={last['rsi']:.1f} "
+        f"signal={last['signal']}"
     )
 
+    global _last_signal
 
-# ======================
-# BTC PIPELINE (V2)
-# ======================
-def run_btc():
-    from analyzer_crypto import get_btc_candles
+    if last["signal"] in ("LONG", "SHORT") and last["signal"] != _last_signal:
+        send_alert(
+            signal=last["signal"],
+            price=last["close"],
+            sl=last["sl"],
+            tp=last["tp"]
+        )
 
-    df = get_btc_candles()
-    if df is None or len(df) < 30:
-        return
+        log_signal(last["signal"], last["close"])
+        _last_signal = last["signal"]
 
-    analyzed = CryptoAnalyzer(df).analyze()
-    last = analyzed.iloc[-1]
-
-    # analogiczny handler BTC
-    # handle_crypto_signal(...)
-
-
-# ======================
-# STOCKS (LEGACY – zostawiamy)
-# ======================
-def run_stocks():
-    END = int(time.time())
-    START = END - 60 * 60 * 24 * 5
-
-    for symbol in config.STOCKS_US:
-        h1 = get_us_candles(symbol, "60", START, END)
-        m5 = get_us_candles(symbol, "5", START, END)
-
-        if h1 and m5:
-            analyze_stock(symbol, m5, h1)
-
-        time.sleep(1.2)
+    if last["signal"] == "NONE":
+        _last_signal = None
 
 
-# ======================
-# MAIN LOOP (5 MIN)
-# ======================
 if __name__ == "__main__":
     while True:
-        now = datetime.datetime.now(datetime.UTC)
-        print(f"[LOOP] {now}")
-
-        heartbeat()
-        run_gold()
-        run_btc()
-        run_stocks()
-
-        print("⏳ sleep 5 min")
+        run_once()
+        logger.info("sleep 5 minutes")
         time.sleep(300)
+

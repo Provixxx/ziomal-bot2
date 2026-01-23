@@ -1,46 +1,23 @@
 import requests
+from config import DISCORD_WEBHOOK
 
-def send_alert(webhook, title, data):
-    side = data["side"]
-    color = 15158332 if side == "SHORT" else 3066993
-    emoji = "🔴" if side == "SHORT" else "🟢"
+
+def send_alert(signal, price, sl=None, tp=None):
+    """
+    Prosty, czytelny alert GOLD
+    """
+    lines = [
+        f"🟡 GOLD ALERT | {signal}",
+        f"ENTRY: {round(price, 2)}"
+    ]
+
+    if sl is not None:
+        lines.append(f"SL: {sl}")
+    if tp is not None:
+        lines.append(f"TP: {tp}")
 
     payload = {
-        "content": "@everyone",
-        "embeds": [{
-            "title": f"🚨 ALARM: {title}",
-            "description": f"**KIERUNEK:** {emoji} **{side}**",
-            "color": color,
-            "fields": [
-                {
-                    "name": "💰 AKTUALNA CENA",
-                    "value": f"${data['entry']}",
-                    "inline": False
-                },
-                {
-                    "name": "🛑 STOP LOSS",
-                    "value": f"${data['sl']}",
-                    "inline": True
-                },
-                {
-                    "name": "🎯 TAKE PROFIT",
-                    "value": f"${data['tp']}",
-                    "inline": True
-                },
-                {
-                    "name": "📊 WSKAŹNIKI",
-                    "value": (
-                        f"**RSI:** {data['rsi']}% *(momentum)*\n"
-                        f"**EMA:** {data['ema']} *(trend)*\n"
-                        f"**ATR:** {data['atr']}% *(zmienność)*"
-                    ),
-                    "inline": False
-                }
-            ],
-            "footer": {
-                "text": "Legenda: RSI=siła ruchu | EMA=kierunek trendu | ATR=zmienność"
-            }
-        }]
+        "content": "\n".join(lines)
     }
 
-    requests.post(webhook, json=payload, timeout=10)
+    requests.post(DISCORD_WEBHOOK, json=payload, timeout=10)
